@@ -1,0 +1,623 @@
+﻿/*
+ * SDcard.h
+ *
+ * Created: 2022-05-08 오후 2:34:36
+ *  Author: Zephyrus
+ */ 
+
+#include <util/delay.h>
+//#include "SDcard.h"
+#include <avr/io.h>
+//#include "FAT32.h"
+//#include "TFTLCD_base.h"
+
+#define CS_SD 0
+#define _BV(n) (1 << n)
+// 비트 클리어
+#define cbi(reg, bit) reg &= ~(_BV(bit))
+// 비트 셋
+#define sbi(reg, bit) reg |= (_BV(bit))
+
+/*	
+#define check(t) {			//
+	PORTD = 0x0;		//
+	_delay_ms((t));	//
+	PORTD = 0xFF;	
+	_delay_ms((t));	
+	}	
+*/	
+typedef unsigned char u_char;
+typedef unsigned int	uint16_t;
+typedef unsigned long	uint32_t;
+
+
+void SD_Init(void);
+void SD_Command(u_char cmd, uint32_t arg);
+void SD_Read(uint32_t sector);
+void SPI_mode0_4MHz(void);
+void SPI_mode0_slow(void);
+void SPI_Mode0_1MHz(void);
+u_char SPI_write(u_char data);
+
+void FAT_Init(void);
+uint16_t fatGetDirEntry(void);
+uint32_t fatClustToSect(uint32_t cluster);
+uint32_t FAT_NextCluster(uint32_t cluster);
+
+
+uint8_t SD_readRes1(void);
+
+
+
+typedef unsigned char u_char;
+typedef unsigned long u_long;
+// SD 카드 명령어
+#define CMD0	0				// GO_IDLE_STATE
+#define CMD8	8				// SEND_IF_COND
+#define CMD17	17				// READ_SINGLE_BLOCK
+#define CMD41	41				// SD_SEND_OP_COND
+#define CMD55	55				// APP_CMD
+#define CMD58	58				// READ_OCR
+
+// SD 카드 버전
+#define SD_VER1		0				// SD Version 1.X SD Memory Card
+#define SD_VER2		1				// SD Version 2.0 or later SD Memory Card
+#define SD_VER2_HC	1				// SD Version 2.0 High Capacity Card
+#define SD_VER2_SD	0				// SD Version 2.0 표준 포맷 Card
+
+
+#define SD_CS 0
+
+// FAT32 정의
+#define MBR				0				// 0번 섹터(Master Boot Record)
+#define EndOfCluster	0x0FFFFFFF		// 클러스터의 끝
+#define u_charPerSector	512				// 512 Byte
+
+#define MAX_NUM_FILE	50				// 파일의 최대 개수 설정
+
+#define BytePerSec 512
+// 변수
+
+extern uint32_t	fileStartClust[MAX_NUM_FILE];
+extern uint32_t	file_len[MAX_NUM_FILE];
+extern uint32_t	RootDirSector;
+extern uint16_t	numOfFile;			// 파일명
+extern uint32_t	First_FAT_Sector;
+extern u_char	SecPerClus;
+extern u_char	sd_type;
+extern u_char	FileName[MAX_NUM_FILE][9];
+extern u_char	buffer[BytePerSec];
+
+
+// MBR 섹터에 있는 파티션 테이블 구조
+struct PartTable
+{
+	u_char		Bootable;
+	u_char		StartHead;
+	uint16_t	StartCylSec;
+	u_char		Type;
+	u_char		EndHead;
+	uint16_t	EndCylSec;
+	uint32_t	LBA_Begin;		// 파티션의 시작 번지
+	uint32_t	Size;			
+};
+
+// PBR 섹터의 전체 구조
+struct BootSector
+{
+	u_char		BS_impBoot[3];
+	char		BS_OEMName[8];
+	uint16_t	BPB_u_charsPerSec;
+	u_char		BPB_SecPerClus;
+	uint16_t	BPB_RsvdSecCnt;
+	u_char		BPB_NumFATs;
+	uint16_t	BPB_RootEntCnt;
+	uint16_t	BPB_TotSec16;
+	u_char		BPB_Media;
+	uint16_t	BPB_FATSz16;
+	uint16_t	BPB_SecPerTrk;
+	uint16_t	BPB_NumHeads;
+	uint32_t	BPB_HiddSec;
+	uint32_t	BPB_TotSec32;
+	
+	uint32_t	BPB_FATSz32;
+	uint16_t	BPB_ExtFlags;
+	uint16_t	BPB_FSVer;
+	uint32_t	BPB_RootClus;
+	uint16_t	BPB_FSInfo;
+	uint16_t	BPB_BkBootSec;
+	u_char		BPB_Reserved[12];
+	u_char		BS_DrvNum;
+	u_char		BS_Reserved1;
+	u_char		BS_BootSig;
+	uint32_t	BS_VollD;
+	char		BS_VolLab[11];
+	char		BS_FilSysType[8];
+	u_char		boot_code[422];
+};
+
+//  디렉터리 엔트리 구조(32_chars)
+//	short dir
+struct DirEntry
+{
+	u_char		DIR_Name[8];
+	u_char		DIR_Ext[3];
+	u_char		DIR_Attr;
+	u_char		DIR_NTRes;
+	u_char		DIR_CrtTimeTenth;
+	uint16_t	DIR_CrtTime;
+	uint16_t	DIR_CrtDate;
+	uint16_t	DIR_LastAccDate;
+	uint16_t	DIR_FstClusHI;
+	uint16_t	DIR_WrtTime;
+	uint16_t	DIR_WrtDate;
+	uint16_t	DIR_FstClusLO;
+	uint32_t	DIR_FileSize;
+};
+
+// long dir
+
+struct DirEntryLong
+{
+	u_char		DIR_order;
+	u_char		DIR_Name_1[10];
+	u_char		DIR_Attr;
+	u_char		DIR_Type;
+	u_char		DIR_ChkSUM;
+	u_char		DIR_Name_2[12];
+	uint16_t	DIR_FstClusLo;
+	u_char		DIR_Name_3[4];
+
+};
+
+
+
+/************************************************************************
+************************************************************************/
+
+
+// 파일 시작 cluster
+uint32_t	fileStartClust[MAX_NUM_FILE];
+uint32_t	file_len[MAX_NUM_FILE];
+uint32_t	RootDirSector;
+uint16_t	numOfFile;			// 파일명
+uint32_t	First_FAT_Sector;
+u_char		SecPerClus;
+u_char		sd_type;
+u_char		FileName[MAX_NUM_FILE][9];
+u_char		buffer[BytePerSec];
+
+u_char		stop_play = 0;
+u_char		repeat = 0;
+uint16_t	sel_pg = 1;
+uint16_t	sel_no = 0;
+uint16_t	sel_tno;
+uint16_t	tot_pg;
+uint16_t	tot_no;
+uint16_t	play_no = 0;
+u_char		sbuf[20];
+
+u_char		spibuf[6];
+void SD_Init(void)
+{
+		
+	u_char i, j, status = 1, res1, cmd_flag = 0;
+	u_char r1_response;
+	u_char r7_response[4];
+	u_char r3_response[7];
+	
+	
+	// SD카드 체크 /////////////////////////////////////////////////////
+	
+	u_char tmphex = 0;
+	
+	 sbi(DDRB, CS_SD);				// -CS_SD is output
+	 TFT_color_screen(Black);
+	 frame();
+	 TFT_string(0,5,Green,  Black," ******************************");
+	 TFT_string(0,16,Magenta,Black,"     SD/SDHC initialize...     ");
+	 TFT_string(0,28,Green,  Black," ******************************");
+//////////////////////////////////////////////////////////////////
+	
+	_delay_ms(100);
+	SPI_mode0_slow(); // SPI 250kHz (100 ~ 400 kHz)
+	
+	// SD_CS = High로 놓고 Dummy Data 10번 전송
+	// 74 클럭 이상 인가해서 SPI 모드 진입
+	sbi(PORTB, SD_CS);
+	for(i=0; i<20; i++) SPI_write(0xFF);
+	
+	//	SD_CS = 0;
+	cbi(PORTB, SD_CS);
+	///////////////////////////////////////////////////////
+	
+	///////////////////////////////////////////////////////
+	_delay_ms(1);
+	
+	SD_Command(CMD0, 0);
+	_delay_ms(10);
+	TFT_string(0,48,Magenta,Black," CMD0 : ");
+	for(i = 0; i<10 ;i++){
+		tmphex = SPI_write(0xFF);
+		TFT_hexadecimal(tmphex,2);
+		///////////////////////////////////////////////////////
+		
+		///////////////////////////////////////////////////////
+		_delay_ms(3);
+	}
+	
+	SD_Command(CMD8, 0x1AA);
+	///////////////////////////////////////////////////////
+	
+	
+	///////////////////////////////////////////////////////
+	_delay_ms(10);
+	
+	do {
+		r1_response = SPI_write(0xFF);
+		
+		if(r1_response == 0x05){
+			sd_type = SD_VER1;
+			///////////////////////////////////////////////////////
+			TFT_string(0,64,Magenta,Black," CMD8 : ");
+			TFT_string(100,64,Green,Black,"/ V1.X");
+			
+			///////////////////////////////////////////////////////
+			break;
+		}
+		else if(r1_response == 0x01){
+			sd_type = SD_VER2;
+			///////////////////////////////////////////////////////
+			TFT_string(0,64,Magenta,Black," CMD8 : ");
+			TFT_string(100,64,Green,Black,"/ V2.X");
+		
+			///////////////////////////////////////////////////////
+			break;
+		}
+	} while(1);
+	
+	
+	switch(sd_type){
+		case SD_VER2:
+
+		// R7 Response 수신 4 u_chars
+		// (R1 Response 는 do while 에서 수신)
+		
+		for(i = 0; i<4; i++) r7_response[i] = SPI_write(0xFF);
+		TFT_hexadecimal(r7_response[3],2);
+		//TFT_hexadecimal(r7_response[3],2);
+		if((r7_response[2] == 0x01) && (r7_response[3] == 0xAA)){
+			
+			//SPI_write(0xFF);
+			for(j=0; j<10; j++){
+				// 5번 이상 반복해야 R1 Response = 0x0 수신 가능
+				
+				SD_Command(CMD55, 0);
+				///////////////////////////////////////////////////////
+				TFT_string(0,80,Magenta,Black," CMD55: ");
+			
+				///////////////////////////////////////////////////////
+				// R1 Response
+				for(i=0;i<3;i++){
+					tmphex = SPI_write(0xFF);
+			
+				}
+				//printString(tftlcd_xpos, tftlcd_ypos, "\n", 0xFFFF, 0x0, 1);
+				TFT_string(0,96,Magenta,Black," ACMD41:");
+				//TFT_color(Cyan, Black);
+				
+				SD_Command(CMD41, 0x40000000); // HCS bit = 1
+				for(i =0 ; i< 10; i++){
+					res1 = SPI_write(0xFF);		// R1 Response 
+					if(res1 == 0x0) cmd_flag = 1;
+
+				}
+		
+				_delay_ms(3);
+			}	
+		} //end of if
+		
+		//while((r7_response[2] == 0x01 && r7_response[3] == 0xAA));
+		//if(cmd_flag == 1) //printString(tftlcd_xpos, tftlcd_ypos, "SD ready!\n", 0xFFFF, 0xF800, 2);
+	
+		
+		TFT_string(0,112,Magenta,Black," CMD58: "); // send CMD58(check SDHC)
+		TFT_color(Cyan, Black);
+		SD_Command(CMD58, 0);			// check ccs bit
+		_delay_ms(10);
+		
+		for(i = 0;i <5;i++){
+			r3_response[0] = SPI_write(0xff);
+			_delay_ms(3);
+			if(r3_response[0] == 0x0){
+				for(j = 1; j<5; j++){
+					r3_response[j] = SPI_write(0xff);
+					_delay_ms(3);
+				}
+				break;
+			}
+		}
+		if((r3_response[1] & 0x40) != 0){ 
+			sd_type = SD_VER2_HC;
+			TFT_string(100,112,Magenta,Black,"(SDHC)");
+			
+		}
+		else {sd_type = SD_VER2_SD;
+			TFT_string(100,112,Magenta,Black,"(SD)");
+			
+		}
+		
+		for(i = 0; i<10; i++){
+			SPI_write(0xFF);
+			_delay_ms(1);
+		}
+		break;
+		
+		
+		// case ver1
+		case SD_VER1:
+		for(j = 0; j<5; j ++){
+			SD_Command(CMD55, 0);
+			_delay_ms(10);
+			for(i = 0; i < 10; i++){
+				SPI_write(0xFF);
+				_delay_ms(3);
+			}
+			
+			SD_Command(CMD41, 0x00000000);
+			_delay_ms(10);
+			for(i=0;i<10;i++){
+				SPI_write(0xFF);
+				_delay_ms(3);
+			}
+		}
+		break;
+	}
+	//	SD_CS = 1;
+	sbi(PORTB, SD_CS);
+	TFT_string(40,128,Green,Black,"initialize complete");
+
+
+}
+
+void SD_Command(u_char cmd, uint32_t arg)
+{
+	u_char crc;
+	u_char status_;
+	
+	SPI_write(cmd | 0x40);		// transition bit 1(6비트째) | cmd
+	SPI_write(arg >> 24);		// 4byte 인수 전송
+	SPI_write(arg >> 16);
+	SPI_write(arg >> 8);
+	SPI_write(arg);
+	
+	crc = 0x01;
+	if(cmd == CMD0) crc = 0x95;		// CRC for CMD0
+	if(cmd == CMD8) crc = 0x87;		// CRC for CMD8(0x000001AA)
+	// else crc = 0xFF;				// CRC for other CMD
+	SPI_write(crc);
+	
+}
+
+void SD_Read(uint32_t sector)
+{
+	uint16_t i;
+	SPI_mode0_4MHz();
+	
+	// High Capacity 카드가 아니면 섹터번호에 *512
+
+	
+	//	SD_CS = 0;			// SD_CS = Low (SD 카드 활성화)
+	cbi(PORTB, SD_CS);
+	//_delay_ms(100);
+	
+	SD_Command(CMD17, sector);
+
+	while(SPI_write(0xFF) != 0x00);		// wait for R1 = 0x00
+	while(SPI_write(0xFF) != 0xFE);		// wait for Start Block Token = 0xFE
+	//check(500);
+	for(i=0; i<512; i++) buffer[i] = SPI_write(0xFF);
+	
+	// CRC 수신 (2 byte)
+	SPI_write(0xFF);
+	SPI_write(0xFF);
+	SPI_write(0xFF);
+	
+	//	SD_CS = 1;				// SD 카드 비활성화
+	sbi(PORTB, SD_CS);
+}
+
+
+void SPI_mode0_4MHz(void)
+{
+	SPCR = 0x50;
+	SPSR = 0x00;
+	//0x01;
+}
+
+void SPI_mode0_slow(void)
+{
+	SPCR = 0x53;			// 16MHz/64 = 250kHz
+	SPSR = 0x01;			// Double SPI Speed
+}
+
+void SPI_Mode0_1MHz(void)
+{
+	SPCR = 0x51;			// 16MHz/16 = 1MHz
+	SPSR = 0x0;
+}
+
+u_char SPI_write(u_char data)
+{
+	//SPI_mode0_4MHz();
+	//cbi(PORTB, CS_SD);				// -CS_SD = 0
+	SPDR = data;
+	while(!(SPSR & 0x80));
+	//sbi(PORTB, CS_SD);				// -CS_SD = 0
+	return SPDR;
+}
+/************************************************************************
+MBR과 PBR sector를 차례대로 읽어 loot 디렉터리 섹터 찾기
+출력:
+First_FAT_Sector : FAT 시작 섹터
+RootDirSector : 루트 디렉터리 섹터
+SecPerClus : 클러스터당 섹터 수
+************************************************************************/
+
+void FAT_Init(void)
+{
+	uint32_t StartLBA;		// PBR 섹터 주소
+	struct PartTable *PartTable_ptr;		// MBR sector partition table 구조체
+	struct BootSector *BootSector_ptr;	// PBR sector 구조체
+	TFT_string(0,160,Green,  Black," ******************************");
+	TFT_string(0,180,Magenta,Black,"         FAT32 initialize...  ");
+	TFT_string(0,200,Green,  Black," ******************************");
+	
+	SD_Read(MBR);						// MBR 섹터(0번섹터)를 읽어 버퍼에 저장
+	
+	// MBR 섹터의 첫번째 파티션 테이블을 저장
+	// 446바이트는 Boot code이고, 446번부터 16바이트씩 파티션#1, #2, #3...
+	PartTable_ptr = (struct PartTable*)(buffer + 446);
+	
+	StartLBA = PartTable_ptr->LBA_Begin;
+	
+	SD_Read(StartLBA);
+	BootSector_ptr = (struct BootSector *)buffer;
+	
+	// root dir sector 계산
+	First_FAT_Sector = StartLBA + BootSector_ptr->BPB_RsvdSecCnt;
+	RootDirSector = First_FAT_Sector
+	 + BootSector_ptr->BPB_FATSz32
+	 * BootSector_ptr->BPB_NumFATs;
+	 
+	 // cluster 당 sector 수 저장
+	 SecPerClus = BootSector_ptr->BPB_SecPerClus;
+	 TFT_string(50,220,Green,Black,"initialized!");
+}
+/************************************************************************
+Directory Entry는 하나의 섹터에 16개 존재
+Directory Entry는 파일의 개수만큼 생성됨
+Directory Entry는 32바이트로 구성
+Directory Entry는 Cluster Number(파일의 시작위치)를 가지고 있음
+Directory Entry에서 Cluster Number 추출
+return : 
+numOfFile : 파일 수
+출력(전역변수) : 
+fileStartClust[num_File] : 각 파일의 시작 클러스터
+FileName[] : 파일명
+file_len : 파일길이 섹터 수
+************************************************************************/
+
+uint16_t fatGetDirEntry(void)
+{
+	struct DirEntry *DE_ptr = 0;
+	uint16_t num_File = 0;			// 파일 개수
+	uint16_t clusterHI;				// 디렉터리 엔트리 HI
+	uint16_t clusterLO;
+	uint32_t clusterNumber;			// 클러스터 넘버
+	uint16_t i, j, k, flag;
+	uint32_t RD_clust, RD_sector;
+	
+	RD_clust = 2;		// 루트 디렉터리 시작 클러스터
+	
+	while(1){
+		RD_sector = fatClustToSect(RD_clust);
+		flag = 1;
+		while(flag){
+			for(k = 0; k < SecPerClus; k++){
+				// 루트 디렉터리 섹터 읽기
+				SD_Read(RD_sector);
+				// 디렉터리 entry 저장
+				DE_ptr = (struct DirEntry *)buffer;
+			
+				// 32바이트 단위로 디렉터리 entry 16개씩 조사 
+				for(j = 0; j < 16; j++){
+					if(DE_ptr->DIR_Name[0] == 0x00){
+						flag = 0;
+						break;
+					}
+					if(DE_ptr->DIR_Name[0] != 0xE5 &&	//삭제 파일
+					DE_ptr->DIR_Attr == 0x20 &&			// 일반 파일
+					DE_ptr->DIR_Ext[0] == 'M' &&		// bmp 파일일시
+					DE_ptr->DIR_Ext[1] == 'P' &&	
+					DE_ptr->DIR_Ext[2] == '3'
+					){
+						// clusterHI:LO 설정
+						clusterHI = DE_ptr->DIR_FstClusHI;
+						clusterLO = DE_ptr->DIR_FstClusLO;
+						
+						clusterNumber = (uint32_t)(clusterHI);	// 16bit->32bit
+						clusterNumber <<= 16;
+						
+						// cluster 넘버 추출
+						clusterNumber |= (uint32_t)(clusterLO);
+						
+						// 시작 cluster 저장
+						fileStartClust[num_File] = clusterNumber;
+						
+						// 파일명 저장
+						for(i = 0; i< 8; i++){
+							FileName[num_File][i] = DE_ptr->DIR_Name[i];
+						}
+						FileName[num_File][8] = '\0';
+						
+						// 파일길이 섹터수(연주 종료조건으로 사용)
+						file_len[num_File] = (DE_ptr->DIR_FileSize / 512) + 1;
+						
+						num_File++;
+						if(num_File >= MAX_NUM_FILE){
+							return num_File;
+						}
+					}
+					DE_ptr++;		// 디렉터리 entry pointer 증가
+				}
+				RD_sector++;
+			}
+		}
+		RD_clust = FAT_NextCluster(RD_clust);
+		if(RD_clust == 0)break;
+	}
+	return num_File;
+}
+/************************************************************************
+클러스터 넘버를 실제주소로 변환
+첫번째 파일의 클러스터 넘버는 언제나 3번 클러스터
+************************************************************************/
+
+
+uint32_t fatClustToSect(uint32_t cluster)
+{
+	return ((cluster - 2) * SecPerClus + RootDirSector);
+}
+/************************************************************************
+현재 cluster로부터 다음 cluster계산
+Arguments	: 현재 cluster 번호
+Returns		: 다음 cluster 번호
+************************************************************************/
+
+uint32_t FAT_NextCluster(uint32_t cluster)
+{
+	uint32_t fatOffset, sector, offset, I_off;
+	uint32_t *I_buf, next_cluster;
+	
+	fatOffset = cluster << 2;		// 각 cluster마다 4Byte 차지
+	
+	// 현재의 클러스터 값으로부터 FAT 에서의 sector와 offset값 산출
+	sector = First_FAT_Sector + (fatOffset / u_charPerSector);
+	// 바이트 단위로 몇번째인지 계산
+	offset = fatOffset % u_charPerSector;
+	// 4바이트씩 나눌 때 몇 번째인지 계산
+	I_off = offset >> 2;
+	
+	SD_Read(sector);			// sector  값 읽기
+	I_buf = (uint32_t *)buffer;	// 읽은 데이터 4바이트 단위로 처리
+	next_cluster = I_buf[I_off];	// next cluster값 읽기
+	
+	if(next_cluster == EndOfCluster) next_cluster = 0;		// 클러스터 종료
+	
+	return next_cluster;
+}
+
+
+
+
